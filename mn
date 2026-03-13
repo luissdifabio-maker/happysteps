@@ -1,0 +1,11 @@
+
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+token = os.getenv("NGROK_AUTHTOKEN")
+domain = os.getenv("NGROK_DOMAIN")
+
+print("TOKEN:", token)
+print("DOMAIN:", domain)
