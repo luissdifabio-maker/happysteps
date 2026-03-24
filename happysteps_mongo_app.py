@@ -8,6 +8,7 @@ import sqlite3
 import smtplib
 from datetime import datetime
 from email.message import EmailMessage
+from pymongo import MongoClient
 
 import pandas as pd
 import streamlit as st
@@ -46,6 +47,8 @@ STUDENT_NAME = os.getenv("STUDENT_NAME", "Champion")
 STUDENT_AVATAR = os.getenv("STUDENT_AVATAR", "😄")
 
 DB_NAME = "database.db"
+MONGO_URI = os.getenv("MONGO_URI")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
 
 
 # ==================== ESTADO DE SESIÓN ====================
@@ -107,6 +110,14 @@ st.markdown("""
 def get_conn():
     return sqlite3.connect(DB_NAME, check_same_thread=False)
 
+@st.cache_resource
+def get_mongo_client():
+    return MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+
+def get_mongo_db():
+    client = get_mongo_client()
+    return client[MONGO_DB_NAME]
+
 
 def table_exists(conn, table_name: str) -> bool:
     c = conn.cursor()
@@ -131,6 +142,7 @@ def ensure_column(conn, table_name: str, column_name: str, column_def: str):
 
 
 def init_db():
+    
     conn = get_conn()
     c = conn.cursor()
 
@@ -484,19 +496,35 @@ if st.session_state.usuario is None:
 
 # ==================== LOGS ====================
 def registrar_evento(event_type: str, task_name: str = "", detail: str = "", success: bool = True):
-    conn = get_conn()
-    c = conn.cursor()
-
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     source = "public_ngrok" if is_from_public_domain() else "local"
 
-    c.execute("""
-        INSERT INTO logs (timestamp, event_type, task_name, detail, success, source)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (timestamp, event_type, task_name, detail, int(success), source))
+    # Guardado en SQLite (se conserva)
+    try:
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO logs (timestamp, event_type, task_name, detail, success, source)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (timestamp, event_type, task_name, detail, int(success), source))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"SQLite log error: {e}")
 
-    conn.commit()
-    conn.close()
+    # Guardado en MongoDB (nuevo)
+    try:
+        mongo_db = get_mongo_db()
+        mongo_db.logs.insert_one({
+            "timestamp": timestamp,
+            "event_type": event_type,
+            "task_name": task_name,
+            "detail": detail,
+            "success": bool(success),
+            "source": source
+        })
+    except Exception as e:
+        print(f"Mongo log error: {e}")
 
 
 # ==================== EMAIL ====================
@@ -1064,4 +1092,4 @@ elif page == "Music Zone":
 
 
 # ==================== FOOTER ====================
-st.caption("HappySteps stores information in SQLite and tracks task progress with music, rewards, and personalized messages.")
+st.caption("HappySteps stores information using SQLite and MongoDB, and tracks task progress with music, rewards, and personalized messages.")
